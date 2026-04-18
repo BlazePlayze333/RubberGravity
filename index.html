@@ -20,7 +20,10 @@
 </head>
 <body>
   <h1>Bouncing Ball with Blocks</h1>
-  <p>Gravity auto-flips every 3 minutes for 15 seconds. Click the ball to boost toward points.</p>
+  <p>
+    Gravity auto-flips every 3 minutes for 15 seconds. Click the ball to boost toward points.
+    P = pause, R = restart.
+  </p>
 
   <canvas id="gameCanvas" width="800" height="600"></canvas>
 
@@ -31,10 +34,7 @@
     let WIDTH = canvas.width;
     let HEIGHT = canvas.height;
 
-    let x = 200;
-    let y = 150;
-    let dx = 4;
-    let dy = 0;
+    let x, y, dx, dy;
     const radius = 30;
 
     const baseGravity = 0.3;
@@ -45,6 +45,8 @@
     const clickStrength = 14;
 
     let score = 0;
+    let paused = false;
+    let gameOver = false;
 
     const NUM_BLOCKS = 8;
     const BLOCK_HITS_TO_BREAK = 3;
@@ -53,7 +55,6 @@
     const GREEN = { r: 80, g: 180, b: 80 };
     const OUTLINE = "#143c14";
 
-    // 3 minutes normal, 15 seconds anti (ms)
     const NORMAL_DURATION = 3 * 60 * 1000;
     const FLIPPED_DURATION = 15 * 1000;
     let stateStartTime = performance.now();
@@ -75,8 +76,7 @@
       return blocks;
     }
 
-    let topBlocks = makeRow(0);
-    let bottomBlocks = makeRow(HEIGHT - blockHeight);
+    let topBlocks, bottomBlocks;
 
     function resetBlock(block) {
       block.hits = 0;
@@ -84,12 +84,29 @@
       block.alpha = 1.0;
     }
 
+    function resetGame() {
+      x = 200;
+      y = 150;
+      dx = 4;
+      dy = 0;
+      score = 0;
+      gravityDirection = 1;
+      topBlocks = makeRow(0);
+      bottomBlocks = makeRow(HEIGHT - blockHeight);
+      stateStartTime = performance.now();
+      paused = false;
+      gameOver = false;
+    }
+
+    resetGame();
+
     function onResize() {
       const rect = canvas.getBoundingClientRect();
       WIDTH = rect.width;
       HEIGHT = rect.height;
       canvas.width = WIDTH;
       canvas.height = HEIGHT;
+      // rebuild rows with fresh size
       topBlocks = makeRow(0);
       bottomBlocks = makeRow(HEIGHT - blockHeight);
     }
@@ -97,16 +114,25 @@
     window.addEventListener("resize", onResize);
 
     canvas.addEventListener("mousedown", (e) => {
+      if (gameOver) return;
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
       const dist = Math.hypot(mx - x, my - y);
       if (dist <= radius) {
         if (gravityDirection === 1) {
-          dy = -clickStrength;   // toward top (points)
+          dy = -clickStrength;
         } else {
-          dy = clickStrength;    // toward bottom (repair/points side)
+          dy = clickStrength;
         }
+      }
+    });
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "p" || e.key === "P") {
+        paused = !paused;
+      } else if ((e.key === "r" || e.key === "R") && gameOver) {
+        resetGame();
       }
     });
 
@@ -123,10 +149,12 @@
     }
 
     function update(dt) {
+      if (paused || gameOver) return;
+
       const now = performance.now();
       const elapsedState = now - stateStartTime;
 
-      // auto flip: 3 min normal, 15 sec anti
+      // auto flip gravity
       if (gravityDirection === 1 && elapsedState >= NORMAL_DURATION) {
         gravityDirection = -1;
         stateStartTime = now;
@@ -140,7 +168,7 @@
       x += dx;
       y += dy;
 
-      // walls
+      // side walls
       if (x - radius <= 0) {
         x = radius;
         dx = -dx;
@@ -153,8 +181,8 @@
       const bottomY = HEIGHT - blockHeight;
 
       if (gravityDirection === 1) {
-        // NORMAL GRAVITY: down
-        // bottom = minus side (blocks damaged)
+        // NORMAL GRAVITY (down)
+        // bottom = minus side (damage, can die)
         if (y + radius >= bottomY) {
           const block = getBlock(bottomBlocks, idx);
           if (block && block.alive) {
@@ -168,9 +196,8 @@
             score -= 5;
             if (score < 0) score = 0;
           } else {
-            // gap on minus side = game over (simple: stop ball)
-            dy = 0;
-            dx = 0;
+            // gap on minus side = game over
+            gameOver = true;
           }
         }
 
@@ -179,18 +206,16 @@
           const block = getBlock(topBlocks, idx);
           if (block && block.alive) {
             y = block.y + block.h + radius;
-            dy = -dy * ceilingBounce;
-            score += 50;
           } else {
             y = blockHeight + radius;
-            dy = -dy * ceilingBounce;
-            score += 50;
           }
+          dy = -dy * ceilingBounce;
+          score += 50;
         }
 
       } else {
-        // ANTI-GRAVITY: up
-        // top = minus side (blocks damaged)
+        // ANTI-GRAVITY (up)
+        // top = minus side (damage, can die)
         if (y - radius <= blockHeight) {
           const block = getBlock(topBlocks, idx);
           if (block && block.alive) {
@@ -204,18 +229,17 @@
             score -= 5;
             if (score < 0) score = 0;
           } else {
-            dy = 0;
-            dx = 0;
+            gameOver = true;
           }
         }
 
-        // bottom = repair side (must hit to fix, no points)
+        // bottom = repair side (hit to fix, never disappears)
         if (y + radius >= bottomY && dy > 0) {
           const block = getBlock(bottomBlocks, idx);
           if (block) {
             y = block.y - radius;
             dy = -dy * ceilingBounce;
-            resetBlock(block);
+            resetBlock(block); // fix this column
           } else {
             y = bottomY - radius;
             dy = -dy * ceilingBounce;
@@ -232,7 +256,6 @@
         ctx.fillStyle = `rgb(${GREEN.r},${GREEN.g},${GREEN.b})`;
         ctx.fillRect(b.x, b.y, b.w, b.h);
         ctx.restore();
-
         ctx.strokeStyle = OUTLINE;
         ctx.strokeRect(b.x, b.y, b.w, b.h);
       }
@@ -253,11 +276,27 @@
       ctx.fill();
       ctx.closePath();
 
+      // text
       ctx.fillStyle = "#ffffff";
       ctx.font = "20px sans-serif";
       const status = gravityDirection === 1 ? "DOWN" : "UP (anti)";
       ctx.fillText(`Score: ${score}`, 10, 24);
       ctx.fillText(`Gravity: ${status}`, 10, 48);
+      ctx.fillText(`P = pause | R = restart`, 10, 72);
+
+      if (paused && !gameOver) {
+        ctx.font = "32px sans-serif";
+        ctx.fillText("PAUSED", WIDTH / 2 - 60, HEIGHT / 2);
+      }
+
+      if (gameOver) {
+        ctx.font = "40px sans-serif";
+        ctx.fillStyle = "#ff5050";
+        ctx.fillText("GAME OVER", WIDTH / 2 - 120, HEIGHT / 2);
+        ctx.font = "24px sans-serif";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("Press R to restart", WIDTH / 2 - 110, HEIGHT / 2 + 40);
+      }
     }
 
     function loop(timestamp) {
