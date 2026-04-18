@@ -22,7 +22,7 @@
   <h1>Bouncing Ball with Blocks</h1>
   <p>
     Gravity auto-flips every 3 minutes for 15 seconds. Click the ball to boost toward points.
-    P = pause, R = restart.
+    P = pause.
   </p>
 
   <canvas id="gameCanvas" width="800" height="600"></canvas>
@@ -282,7 +282,7 @@
       const status = gravityDirection === 1 ? "DOWN" : "UP (anti)";
       ctx.fillText(`Score: ${score}`, 10, 24);
       ctx.fillText(`Gravity: ${status}`, 10, 48);
-      ctx.fillText(`P = pause | R = restart`, 10, 72);
+      ctx.fillText(`P = pause`, 10, 72);
 
       if (paused && !gameOver) {
         ctx.font = "32px sans-serif";
