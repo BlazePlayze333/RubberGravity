@@ -100,16 +100,33 @@
 
     resetGame();
 
-    function onResize() {
-      const rect = canvas.getBoundingClientRect();
-      WIDTH = rect.width;
-      HEIGHT = rect.height;
-      canvas.width = WIDTH;
-      canvas.height = HEIGHT;
-      // rebuild rows with fresh size
-      topBlocks = makeRow(0);
-      bottomBlocks = makeRow(HEIGHT - blockHeight);
-    }
+function onResize() {
+  const rect = canvas.getBoundingClientRect();
+  WIDTH = rect.width;
+  HEIGHT = rect.height;
+  canvas.width = WIDTH;
+  canvas.height = HEIGHT;
+
+  const blockWidth = WIDTH / NUM_BLOCKS;
+  const topY = 0;
+  const bottomY = HEIGHT - blockHeight;
+
+  // Resize existing top blocks without resetting hits
+  topBlocks.forEach((b, i) => {
+    b.x = i * blockWidth;
+    b.y = topY;
+    b.w = blockWidth;
+    b.h = blockHeight;
+  });
+
+  // Resize existing bottom blocks without resetting hits
+  bottomBlocks.forEach((b, i) => {
+    b.x = i * blockWidth;
+    b.y = bottomY;
+    b.w = blockWidth;
+    b.h = blockHeight;
+  });
+}
 
     window.addEventListener("resize", onResize);
 
