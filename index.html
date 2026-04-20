@@ -319,11 +319,28 @@
     function update(dt) {
       if (paused || gameOver) return;
 
-      const gravity = baseGravity * gravityDirection; // always positive (down)
-      dy += gravity;
-      x += dx;
-      y += dy;
+      // dt is in ms, convert to seconds
+      const dtSec = dt / 1000;
 
+      // frame‑rate‑independent gravity and movement
+      const gravity = baseGravity * gravityDirection; // units per second^2
+      dy += gravity * dtSec;
+
+      // scale motion so it feels similar to 60 FPS original
+      const speedScale = 60 * dtSec;
+      x += dx * speedScale;
+      y += dy * speedScale;
+
+      // clamp max velocity so it doesn't get crazy fast
+      const MAX_SPEED = 25;
+      const speed = Math.hypot(dx, dy);
+      if (speed > MAX_SPEED) {
+        const scale = MAX_SPEED / speed;
+        dx *= scale;
+        dy *= scale;
+      }
+
+      // walls
       if (x - radius <= 0) {
         x = radius;
         dx = -dx;
@@ -353,7 +370,7 @@
         }
       }
 
-      // Top (now also breakable, gap = death)
+      // Top (breakable, gap = death)
       if (y - radius <= blockHeight) {
         const block = getBlock(topBlocks, idx);
         if (block && block.alive) {
