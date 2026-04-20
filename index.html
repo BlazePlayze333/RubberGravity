@@ -38,7 +38,7 @@
 <body>
   <h1>Bouncing Ball with Grogu</h1>
   <p>
-    Normal gravity, breakable blocks on top and bottom, and a floating Grogu using the Force.
+    Blocks with a floating Grogu using the Force.
     Click ball to boost. P = pause, R = restart, or use buttons.
   </p>
 
@@ -66,7 +66,7 @@
     const baseGravity = 0.3;
     let gravityDirection = 1; // always down
 
-    const floorBounce = 0.85;
+    const floorBounce = 0.9;
     const ceilingBounce = 0.3;
     const clickStrength = 14;
 
@@ -81,7 +81,8 @@
     const GREEN = { r: 80, g: 180, b: 80 };
     const OUTLINE = "#143c14";
 
-    const NORMAL_DURATION = 1 * 60 * 1000; // unused now, kept for reference
+    const NORMAL_DURATION = 1 * 60 * 1000; // unused now but kept
+
     let stateStartTime = performance.now();
 
     // Grogu force state
@@ -182,7 +183,7 @@
     window.addEventListener("keydown", (e) => {
       if (e.key === "p" || e.key === "P") {
         paused = !paused;
-      } else if ((e.key === "r" || e.key === "R") && gameOver) {
+      } else if (e.key === "r" || e.key === "R") {
         resetGame();
       }
     });
@@ -217,7 +218,7 @@
       const y = baseY + jump;
 
       ctx.fillStyle = "#4b3a24";
-      ctx.fillRect(baseX - 25, y, 50, 70);
+      ctx.fillRect(baseX - 25, y, 50, 35);
 
       const headY = y - 35;
       ctx.fillStyle = "#7fbf7f";
@@ -260,7 +261,7 @@
       const dist = Math.hypot(x - hand.handX, y - hand.handY);
 
       const COOLDOWN = 1000;
-      const RANGE = 260;
+      const RANGE = 1000000000;  // effectively always in range
       const BEAM_DURATION = 350;
       const FORCE_STRENGTH = 50;
 
@@ -318,7 +319,7 @@
     function update(dt) {
       if (paused || gameOver) return;
 
-      const gravity = baseGravity * gravityDirection; // always down
+      const gravity = baseGravity * gravityDirection; // always positive (down)
       dy += gravity;
       x += dx;
       y += dy;
@@ -334,7 +335,7 @@
       const idx = getBlockIndex();
       const bottomY = HEIGHT - blockHeight;
 
-      // Bottom = breakable
+      // Bottom (breakable, gap = death)
       if (y + radius >= bottomY) {
         const block = getBlock(bottomBlocks, idx);
         if (block && block.alive) {
@@ -352,7 +353,7 @@
         }
       }
 
-      // Top = now also breakable
+      // Top (now also breakable, gap = death)
       if (y - radius <= blockHeight) {
         const block = getBlock(topBlocks, idx);
         if (block && block.alive) {
@@ -363,7 +364,7 @@
           block.alpha = Math.max(0, 1.0 - block.hits / BLOCK_HITS_TO_BREAK);
           if (block.hits >= BLOCK_HITS_TO_BREAK) block.alive = false;
 
-          score -= 5; // or change to +points if you want
+          score -= 5;   // change to +points if you prefer
           if (score < 0) score = 0;
         } else {
           gameOver = true;
@@ -402,7 +403,7 @@
       drawBlocks(topBlocks);
       drawBlocks(bottomBlocks);
 
-      // Ball: shiny metal sphere like Grogu's knob
+      // Ball: shiny metal sphere
       const grad = ctx.createRadialGradient(
         x - radius * 0.4, y - radius * 0.4, radius * 0.1,
         x, y, radius
@@ -428,9 +429,8 @@
       ctx.fillStyle = "#ffffff";
       ctx.font = "20px sans-serif";
       ctx.fillText(`Score: ${score}`, 10, 24);
-      ctx.fillText(`Gravity: DOWN`, 10, 48);
-      ctx.fillText(`P = pause | R = restart`, 10, 72);
-      ctx.fillText(`Force next: ${forceMode === 1 ? "PUSH" : "PULL"}`, 10, 96);
+      ctx.fillText(`P = pause | R = restart`, 10, 48);
+      ctx.fillText(`Force next: ${forceMode === 1 ? "PUSH" : "PULL"}`, 10, 72);
 
       if (paused && !gameOver) {
         ctx.font = "32px sans-serif";
