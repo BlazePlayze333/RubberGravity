@@ -39,7 +39,7 @@
   <h1>Bouncing Ball with Grogu</h1>
   <p>
     Blocks with a floating Grogu using the Force.
-    Click ball to boost. P = pause, R = restart, or use buttons.
+    Click ball to boost. Click a block to have Grogu heal it. P = pause, R = restart, or use buttons.
   </p>
 
   <canvas id="gameCanvas" width="800" height="600"></canvas>
@@ -63,11 +63,11 @@
     let x, y, dx, dy;
     const radius = 30;
 
-    const baseGravity = 0.3;
+    const baseGravity = 13;
     let gravityDirection = 1; // always down
 
-    const floorBounce = 0.9;
-    const ceilingBounce = 0.3;
+    const floorBounce = 0.95;
+    const ceilingBounce = 0.4;
     const clickStrength = 14;
 
     let score = 0;
@@ -85,15 +85,17 @@
 
     let stateStartTime = performance.now();
 
-    // if you re‑enable pause timing later, uncomment these and the related code
-    // let totalPausedTime = 0;
-    // let pauseStartedAt = null;
-
-    // Grogu force state
+    // Grogu force state (blue beam to ball)
     let lastForceTime = 0;
     let forceMode = 1;        // 1 = push, -1 = pull
     let beamActive = false;
     let beamEndTime = 0;
+
+    // Heal beam state (green beam to block)
+    let healBeamActive = false;
+    let healBeamEndTime = 0;
+    let healTargetX = 0;
+    let healTargetY = 0;
 
     // ---------- BLOCKS ----------
     function makeRow(yPos) {
@@ -136,8 +138,7 @@
       lastForceTime = 0;
       forceMode = 1;
       beamActive = false;
-      // totalPausedTime = 0;
-      // pauseStartedAt = null;
+      healBeamActive = false;
     }
 
     resetGame();
@@ -176,21 +177,66 @@
 
     // ---------- INPUT ----------
     canvas.addEventListener("mousedown", (e) => {
-      if (gameOver) return;
+      // prevent boosting or healing while paused or game over
+      if (gameOver || paused) return;
+
       const rect = canvas.getBoundingClientRect();
       const mx = e.clientX - rect.left;
       const my = e.clientY - rect.top;
-      const dist = Math.hypot(mx - x, my - y);
-      if (dist <= radius) {
-        dy = -clickStrength; // always boost up
+
+      // 1) Check if clicked ball
+      const distBall = Math.hypot(mx - x, my - y);
+      if (distBall <= radius) {
+        dy = -clickStrength; // boost ball up
+        return;
+      }
+
+      // 2) Check if clicked a block (top or bottom)
+      const blockWidth = WIDTH / NUM_BLOCKS;
+
+      // top row
+      if (my >= 0 && my <= blockHeight) {
+        const idx = Math.floor(mx / blockWidth);
+        const block = topBlocks[idx];
+        if (block && block.alive) {
+          healBlock(block);
+          triggerHealBeam(block);
+          return;
+        }
+      }
+
+      // bottom row
+      if (my >= HEIGHT - blockHeight && my <= HEIGHT) {
+        const idx = Math.floor(mx / blockWidth);
+        const block = bottomBlocks[idx];
+        if (block && block.alive) {
+          healBlock(block);
+          triggerHealBeam(block);
+          return;
+        }
       }
     });
+
+    function healBlock(block) {
+      if (!block.alive) return;
+      if (block.hits > 0) {
+        block.hits -= 1;
+      }
+      block.alpha = Math.max(0, 1.0 - block.hits / BLOCK_HITS_TO_BREAK);
+    }
+
+    function triggerHealBeam(block) {
+      const BEAM_DURATION = 350;
+      const now = performance.now();
+      healBeamActive = true;
+      healBeamEndTime = now + BEAM_DURATION;
+      healTargetX = block.x + block.w / 2;
+      healTargetY = block.y + block.h / 2;
+    }
 
     window.addEventListener("keydown", (e) => {
       if (e.key === "p" || e.key === "P") {
         paused = !paused;
-        // if (!paused) { totalPausedTime += performance.now() - pauseStartedAt; pauseStartedAt = null; }
-        // else { pauseStartedAt = performance.now(); }
       } else if (e.key === "r" || e.key === "R") {
         resetGame();
       }
@@ -198,7 +244,6 @@
 
     pauseBtn.addEventListener("click", () => {
       paused = !paused;
-      // same idea as above if you re‑enable pause timing later
     });
 
     restartBtn.addEventListener("click", () => {
@@ -264,13 +309,13 @@
       return { handX, handY };
     }
 
-    // ---------- GROGU FORCE ----------
+    // ---------- GROGU FORCE (blue beam to ball) ----------
     function drawForceBeam(hand, time) {
       const now = time;
       const dist = Math.hypot(x - hand.handX, y - hand.handY);
 
       const COOLDOWN = 1000;
-      const RANGE = 1000000000;
+      const RANGE = 1000000000;  // effectively always in range
       const BEAM_DURATION = 350;
       const FORCE_STRENGTH = 50;
 
@@ -324,18 +369,45 @@
       forceMode *= -1;
     }
 
+    // ---------- HEAL BEAM (green, to block) ----------
+    function drawHealBeam(hand, time) {
+      if (!healBeamActive) return;
+      const now = time;
+      const pulse = (Math.sin(time / 200) + 1) / 2;
+      ctx.save();
+      ctx.strokeStyle = `rgba(80, 255, 120, ${0.4 + 0.3 * pulse})`;
+      ctx.lineWidth = 3 + 2 * pulse;
+      ctx.beginPath();
+      ctx.moveTo(hand.handX, hand.handY);
+      ctx.lineTo(healTargetX, healTargetY);
+      ctx.stroke();
+      ctx.restore();
+
+      if (now >= healBeamEndTime) {
+        healBeamActive = false;
+      }
+    }
+
     // ---------- UPDATE ----------
     function update(dt) {
       if (paused || gameOver) return;
 
-      const now = performance.now();
-      // activeStateTime not needed now because we no longer flip gravity
-      // const activeStateTime = now - stateStartTime - totalPausedTime;
+      const dtSec = dt / 1000;
 
-      const gravity = baseGravity * gravityDirection; // always positive (down)
-      dy += gravity;
-      x += dx;
-      y += dy;
+      const gravity = baseGravity * gravityDirection;
+      dy += gravity * dtSec;
+
+      const speedScale = 60 * dtSec;
+      x += dx * speedScale;
+      y += dy * speedScale;
+
+      const MAX_SPEED = 25;
+      const speed = Math.hypot(dx, dy);
+      if (speed > MAX_SPEED) {
+        const scale = MAX_SPEED / speed;
+        dx *= scale;
+        dy *= scale;
+      }
 
       if (x - radius <= 0) {
         x = radius;
@@ -348,7 +420,7 @@
       const idx = getBlockIndex();
       const bottomY = HEIGHT - blockHeight;
 
-      // Only normal gravity behaviour
+      // Bottom (breakable, gap = death, small penalty)
       if (y + radius >= bottomY) {
         const block = getBlock(bottomBlocks, idx);
         if (block && block.alive) {
@@ -366,15 +438,21 @@
         }
       }
 
+      // Top (breakable, gap = death, reward)
       if (y - radius <= blockHeight) {
         const block = getBlock(topBlocks, idx);
         if (block && block.alive) {
           y = block.y + block.h + radius;
+          dy = -dy * ceilingBounce;
+
+          block.hits += 1;
+          block.alpha = Math.max(0, 1.0 - block.hits / BLOCK_HITS_TO_BREAK);
+          if (block.hits >= BLOCK_HITS_TO_BREAK) block.alive = false;
+
+          score += 50;
         } else {
-          y = blockHeight + radius;
+          gameOver = true;
         }
-        dy = -dy * ceilingBounce;
-        score += 50;
       }
     }
 
@@ -404,12 +482,15 @@
       }
 
       const hand = drawGrogu(time);
+
+      // blue attack beam (to ball)
       drawForceBeam(hand, time);
+      // green heal beam (to clicked block)
+      drawHealBeam(hand, time);
 
       drawBlocks(topBlocks);
       drawBlocks(bottomBlocks);
 
-      // Ball: shiny metal sphere
       const grad = ctx.createRadialGradient(
         x - radius * 0.4, y - radius * 0.4, radius * 0.1,
         x, y, radius
