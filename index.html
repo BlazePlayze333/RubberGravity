@@ -317,6 +317,554 @@
       const COOLDOWN = 1000;
       const RANGE = 1000000000;  // effectively always in range
       const BEAM_DURATION = 350;
+      const FORCE_STRENGTH = 40;
+
+      if (beamActive) {
+        const pulse = (Math.sin(time / 200) + 1) / 2;
+        ctx.save();
+        ctx.strokeStyle = `rgba(150, 220, 255, ${0.4 + 0.3 * pulse})`;
+        ctx.lineWidth = 3 + 2 * pulse;
+        ctx.beginPath();
+        ctx.moveTo(hand.handX, hand.handY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+        ctx.restore();
+
+        if (now >= beamEndTime) {
+          beamActive = false;
+        }
+        return;
+      }
+
+      if (dist > RANGE || now - lastForceTime < COOLDOWN) return;
+
+      lastForceTime = now;
+      beamActive = true;
+      beamEndTime = now + BEAM_DURATION;
+
+      const dirX = x - hand.handX;
+      const dirY = y - hand.handY;
+      const len = Math.hypot(dirX, dirY) || 1;
+      let nx = dirX / len;
+      let ny = dirY / len;
+
+      if (forceMode === 1) {
+        dx += nx * (FORCE_STRENGTH * 0.05);
+        dy += ny * (FORCE_STRENGTH * 0.05);
+      } else {
+        dx -= nx * (FORCE_STRENGTH * 0.05);
+        dy -= ny * (FORCE_STRENGTH * 0.05);
+      }
+
+      const pulse = (Math.sin(time / 200) + 1) / 2;
+      ctx.save();
+      ctx.strokeStyle = `rgba(150, 220, 255, ${0.4 + 0.3 * pulse})`;
+      ctx.lineWidth = 3 + 2 * pulse;
+      ctx.beginPath();
+      ctx.moveTo(hand.handX, hand.handY);
+      ctx.lineTo(x, y);
+      ctx.stroke();
+      ctx.restore();
+
+      forceMode *= -1;
+    }
+
+    // ---------- HEAL BEAM (green, to block) ----------
+    function drawHealBeam(hand, time) {
+      if (!healBeamActive) return;
+      const now = time;
+      const pulse = (Math.sin(time / 200) + 1) / 2;
+      ctx.save();
+      ctx.strokeStyle = `rgba(80, 255, 120, ${0.4 + 0.3 * pulse})`;
+      ctx.lineWidth = 3 + 2 * pulse;
+      ctx.beginPath();
+      ctx.moveTo(hand.handX, hand.handY);
+      ctx.lineTo(healTargetX, healTargetY);
+      ctx.stroke();
+      ctx.restore();
+
+      if (now >= healBeamEndTime) {
+        healBeamActive = false;
+      }
+    }
+
+    // ---------- UPDATE ----------
+    function update(dt) {
+      if (paused || gameOver) return;
+
+      const dtSec = dt / 1000;
+
+      const gravity = baseGravity * gravityDirection;
+      dy += gravity * dtSec;
+
+      const speedScale = 60 * dtSec;
+      x += dx * speedScale;
+      y += dy * speedScale;
+
+      const MAX_SPEED = 25;
+      const speed = Math.hypot(dx, dy);
+      if (speed > MAX_SPEED) {
+        const scale = MAX_SPEED / speed;
+        dx *= scale;
+        dy *= scale;
+      }
+
+      if (x - radius <= 0) {
+        x = radius;
+        dx = -dx;
+      } else if (x + radius >= WIDTH) {
+        x = WIDTH - radius;
+        dx = -dx;
+      }
+
+      const idx = getBlockIndex();
+      const bottomY = HEIGHT - blockHeight;
+
+      // Bottom (breakable, gap = death, small penalty)
+      if (y + radius >= bottomY) {
+        const block = getBlock(bottomBlocks, idx);
+        if (block && block.alive) {
+          y = block.y - radius;
+          dy = -dy * floorBounce;
+
+          block.hits += 1;
+          block.alpha = Math.max(0, 1.0 - block.hits / BLOCK_HITS_TO_BREAK);
+          if (block.hits >= BLOCK_HITS_TO_BREAK) block.alive = false;
+
+          score -= 5;
+          if (score < 0) score = 0;
+        } else {
+          gameOver = true;
+        }
+      }
+
+      // Top (breakable, gap = death, reward)
+      if (y - radius <= blockHeight) {
+        const block = getBlock(topBlocks, idx);
+        if (block && block.alive) {
+          y = block.y + block.h + radius;
+          dy = -dy * ceilingBounce;
+
+          block.hits += 1;
+          block.alpha = Math.max(0, 1.0 - block.hits / BLOCK_HITS_TO_BREAK);
+          if (block.hits >= BLOCK_HITS_TO_BREAK) block.alive = false;
+
+          score += 50;
+        } else {
+          gameOver = true;
+        }
+      }
+    }
+
+    // ---------- DRAW ----------
+    function drawBlocks(blocks) {
+      for (const b of blocks) {
+        if (!b.alive) continue;
+        ctx.save();
+        ctx.globalAlpha = b.alpha;
+        ctx.fillStyle = `rgb(${GREEN.r},${GREEN.g},${GREEN.b})`;
+        ctx.fillRect(b.x, b.y, b.w, b.h);
+        ctx.restore();
+        ctx.strokeStyle = OUTLINE;
+        ctx.strokeRect(b.x, b.y, b.w, b.h);
+      }
+    }
+
+    function draw(time) {
+      ctx.fillStyle = "#02030a";
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+      ctx.fillStyle = "#ffffff";
+      for (let i = 0; i < 60; i++) {
+        const sx = (i * 97 + (time * 0.02)) % WIDTH;
+        const sy = (i * 53) % HEIGHT;
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+
+      const hand = drawGrogu(time);
+
+      // blue attack beam (to ball)
+      drawForceBeam(hand, time);
+      // green heal beam (to clicked block)
+      drawHealBeam(hand, time);
+
+      drawBlocks(topBlocks);
+      drawBlocks(bottomBlocks);
+
+      const grad = ctx.createRadialGradient(
+        x - radius * 0.4, y - radius * 0.4, radius * 0.1,
+        x, y, radius
+      );
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.3, "#d0d0d0");
+      grad.addColorStop(0.7, "#8a8a8a");
+      grad.addColorStop(1, "#444444");
+
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.closePath();
+
+      ctx.strokeStyle = "#222222";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.closePath();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "20px sans-serif";
+      ctx.fillText(`Score: ${score}`, 10, 24);
+      ctx.fillText(`P = pause | R = restart`, 10, 48);
+      ctx.fillText(`Force next: ${forceMode === 1 ? "PUSH" : "PULL"}`, 10, 72);
+
+      if (paused && !gameOver) {
+        ctx.font = "32px sans-serif";
+        ctx.fillText("PAUSED", WIDTH / 2 - 60, HEIGHT / 2);
+      }
+
+      if (gameOver) {
+        ctx.font = "40px sans-serif";
+        ctx.fillStyle = "#ff5050";
+        ctx.fillText("GAME OVER", WIDTH / 2 - 120, HEIGHT / 2);
+        ctx.font = "24px sans-serif";
+        ctx.fillStyle = "#ffffff";
+        ctx.fillText("Press R or Restart button", WIDTH / 2 - 150, HEIGHT / 2 + 40);
+      }
+    }
+
+    // ---------- LOOP ----------
+    function loop(timestamp) {
+      const dt = timestamp - lastTime;
+      lastTime = timestamp;
+      update(dt);
+      draw(timestamp);
+      requestAnimationFrame(loop);
+    }
+
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bouncing Ball with Grogu (JS)</title>
+  <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: sans-serif;
+      text-align: center;
+    }
+    #gameCanvas {
+      background: #000000;
+      border: 2px solid #444;
+      display: block;
+      margin: 20px auto;
+    }
+    .controls {
+      margin-top: 10px;
+    }
+    .controls button {
+      padding: 10px 18px;
+      margin: 0 6px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      background: #2b7cff;
+      color: #fff;
+    }
+    .controls button:active {
+      transform: scale(0.96);
+      background: #1f5fd0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Bouncing Ball with Grogu</h1>
+  <p>
+    Blocks with a floating Grogu using the Force.
+    Click ball to boost. Click a block to have Grogu heal it. P = pause, R = restart, or use buttons.
+  </p>
+
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+  <div class="controls">
+    <button id="pauseBtn">Pause / Resume</button>
+    <button id="restartBtn">Restart</button>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    const pauseBtn = document.getElementById("pauseBtn");
+    const restartBtn = document.getElementById("restartBtn");
+
+    let WIDTH = canvas.width;
+    let HEIGHT = canvas.height;
+
+    // ---------- GAME STATE ----------
+    let x, y, dx, dy;
+    const radius = 30;
+
+    const baseGravity = 13;
+    let gravityDirection = 1; // always down
+
+    const floorBounce = 0.95;
+    const ceilingBounce = 0.4;
+    const clickStrength = 14;
+
+    let score = 0;
+    let paused = false;
+    let gameOver = false;
+
+    const NUM_BLOCKS = 8;
+    const BLOCK_HITS_TO_BREAK = 3;
+    const blockHeight = 30;
+
+    const GREEN = { r: 80, g: 180, b: 80 };
+    const OUTLINE = "#143c14";
+
+    const NORMAL_DURATION = 1 * 60 * 1000; // unused now but kept
+
+    let stateStartTime = performance.now();
+
+    // Grogu force state (blue beam to ball)
+    let lastForceTime = 0;
+    let forceMode = 1;        // 1 = push, -1 = pull
+    let beamActive = false;
+    let beamEndTime = 0;
+
+    // Heal beam state (green beam to block)
+    let healBeamActive = false;
+    let healBeamEndTime = 0;
+    let healTargetX = 0;
+    let healTargetY = 0;
+
+    // ---------- BLOCKS ----------
+    function makeRow(yPos) {
+      const blocks = [];
+      const blockWidth = WIDTH / NUM_BLOCKS;
+      for (let i = 0; i < NUM_BLOCKS; i++) {
+        blocks.push({
+          x: i * blockWidth,
+          y: yPos,
+          w: blockWidth,
+          h: blockHeight,
+          hits: 0,
+          alive: true,
+          alpha: 1.0
+        });
+      }
+      return blocks;
+    }
+
+    let topBlocks, bottomBlocks;
+
+    function resetBlock(block) {
+      block.hits = 0;
+      block.alive = true;
+      block.alpha = 1.0;
+    }
+
+    function resetGame() {
+      x = 400;
+      y = 200;
+      dx = 4;
+      dy = 0;
+      score = 0;
+      gravityDirection = 1;
+      topBlocks = makeRow(0);
+      bottomBlocks = makeRow(HEIGHT - blockHeight);
+      stateStartTime = performance.now();
+      paused = false;
+      gameOver = false;
+      lastForceTime = 0;
+      forceMode = 1;
+      beamActive = false;
+      healBeamActive = false;
+    }
+
+    resetGame();
+
+    // ---------- RESIZE ----------
+    function onResize() {
+      const rect = canvas.getBoundingClientRect();
+      WIDTH = rect.width;
+      HEIGHT = rect.height;
+      canvas.width = WIDTH;
+      canvas.height = HEIGHT;
+
+      const blockWidth = WIDTH / NUM_BLOCKS;
+      const topY = 0;
+      const bottomY = HEIGHT - blockHeight;
+
+      if (topBlocks) {
+        topBlocks.forEach((b, i) => {
+          b.x = i * blockWidth;
+          b.y = topY;
+          b.w = blockWidth;
+          b.h = blockHeight;
+        });
+      }
+      if (bottomBlocks) {
+        bottomBlocks.forEach((b, i) => {
+          b.x = i * blockWidth;
+          b.y = bottomY;
+          b.w = blockWidth;
+          b.h = blockHeight;
+        });
+      }
+    }
+
+    window.addEventListener("resize", onResize);
+
+    // ---------- INPUT ----------
+    canvas.addEventListener("mousedown", (e) => {
+      // prevent boosting or healing while paused or game over
+      if (gameOver || paused) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+
+      // 1) Check if clicked ball
+      const distBall = Math.hypot(mx - x, my - y);
+      if (distBall <= radius) {
+        dy = -clickStrength; // boost ball up
+        return;
+      }
+
+      // 2) Check if clicked a block (top or bottom)
+      const blockWidth = WIDTH / NUM_BLOCKS;
+
+      // top row
+      if (my >= 0 && my <= blockHeight) {
+        const idx = Math.floor(mx / blockWidth);
+        const block = topBlocks[idx];
+        if (block && block.alive) {
+          healBlock(block);
+          triggerHealBeam(block);
+          return;
+        }
+      }
+
+      // bottom row
+      if (my >= HEIGHT - blockHeight && my <= HEIGHT) {
+        const idx = Math.floor(mx / blockWidth);
+        const block = bottomBlocks[idx];
+        if (block && block.alive) {
+          healBlock(block);
+          triggerHealBeam(block);
+          return;
+        }
+      }
+    });
+
+    function healBlock(block) {
+      if (!block.alive) return;
+      if (block.hits > 0) {
+        block.hits -= 1;
+      }
+      block.alpha = Math.max(0, 1.0 - block.hits / BLOCK_HITS_TO_BREAK);
+    }
+
+    function triggerHealBeam(block) {
+      const BEAM_DURATION = 350;
+      const now = performance.now();
+      healBeamActive = true;
+      healBeamEndTime = now + BEAM_DURATION;
+      healTargetX = block.x + block.w / 2;
+      healTargetY = block.y + block.h / 2;
+    }
+
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "p" || e.key === "P") {
+        paused = !paused;
+      } else if (e.key === "r" || e.key === "R") {
+        resetGame();
+      }
+    });
+
+    pauseBtn.addEventListener("click", () => {
+      paused = !paused;
+    });
+
+    restartBtn.addEventListener("click", () => {
+      resetGame();
+    });
+
+    let lastTime = performance.now();
+
+    function getBlockIndex() {
+      const blockWidth = WIDTH / NUM_BLOCKS;
+      return Math.floor(x / blockWidth);
+    }
+
+    function getBlock(blocks, idx) {
+      if (idx < 0 || idx >= NUM_BLOCKS) return null;
+      return blocks[idx];
+    }
+
+    // ---------- GROGU ANIMATION ----------
+    function drawGrogu(time) {
+      const t = time / 1000;
+      const baseX = 80;
+      const baseY = HEIGHT - 285;
+
+      const jump = Math.sin(t * 3) * 15;
+      const y = baseY + jump;
+
+      ctx.fillStyle = "#4b3a24";
+      ctx.fillRect(baseX - 25, y, 50, 35);
+
+      const headY = y - 35;
+      ctx.fillStyle = "#7fbf7f";
+      ctx.beginPath();
+      ctx.ellipse(baseX, headY, 25, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(baseX - 25, headY);
+      ctx.lineTo(baseX - 55, headY - 10);
+      ctx.lineTo(baseX - 25, headY + 10);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.moveTo(baseX + 25, headY);
+      ctx.lineTo(baseX + 55, headY - 10);
+      ctx.lineTo(baseX + 25, headY + 10);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#000000";
+      ctx.beginPath();
+      ctx.arc(baseX - 10, headY - 3, 3, 0, Math.PI * 2);
+      ctx.arc(baseX + 10, headY - 3, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#6b4b2a";
+      ctx.fillRect(baseX - 25, y - 8, 50, 10);
+
+      const handX = baseX + 25;
+      const handY = y + 5;
+
+      return { handX, handY };
+    }
+
+    // ---------- GROGU FORCE (blue beam to ball) ----------
+    function drawForceBeam(hand, time) {
+      const now = time;
+      const dist = Math.hypot(x - hand.handX, y - hand.handY);
+
+      const COOLDOWN = 1000;
+      const RANGE = 1000000000;  // effectively always in range
+      const BEAM_DURATION = 350;
       const FORCE_STRENGTH = 50;
 
       if (beamActive) {
